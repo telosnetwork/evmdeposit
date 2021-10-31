@@ -1,6 +1,6 @@
 #include "evmdeposit.hpp"
 
-evmdeposit::evmdeposit(name self, name code, datastream<const char *> ds) : contract(self, code, ds), _accounts(self, self.value) {}
+evmdeposit::evmdeposit(name self, name code, datastream<const char *> ds) : contract(self, code, ds), _accounts(EVM_CONTRACT, EVM_CONTRACT.value) {}
 
 evmdeposit::~evmdeposit() {}
 
@@ -12,12 +12,12 @@ ACTION evmdeposit::addallow(eosio::name toadd)
     config cfg;
     if (conf.exists()) {
         cfg = conf.get();
-        std::vector<eosio::name> allowed = cfg.allowed;
-        auto it = allowed.begin();
-        while (it != allowed.end()) {
-            eosio::check(*it == toadd, "Account already allowed");
+        auto it = cfg.allowed.begin();
+        while (it != cfg.allowed.end()) {
+            eosio::check(*it != toadd, "Account already allowed");
+            ++it;
         }
-        allowed.emplace_back(toadd);
+        cfg.allowed.emplace_back(toadd);
     } else {
         std::vector<eosio::name> allowed = { toadd };
         cfg = {
@@ -72,12 +72,13 @@ void evmdeposit::ontransfer(name from, name to, asset quantity, string memo)
         check(!memo.empty(), "EVM Address is empty");
         check(memo.length() == 42 && memo.substr(0, 2) == "0x", "EVM Address should be exactly 42 characters and begin with 0x");
 
+        eosio::checksum160 address_160 = eosio_evm::toChecksum160(memo.substr(2,42));
+        eosio::checksum256 address_256 = eosio_evm::pad160(address_160);
         auto accounts_byaddress = _accounts.get_index<eosio::name("byaddress")>();
-        auto address_256 = eosio_evm::pad160(eosio_evm::toChecksum160(memo.substr(2,42)));
         auto account = accounts_byaddress.find(address_256);
         if (account == accounts_byaddress.end()) {
             action(permission_level{get_self(), name("active")}, EVM_CONTRACT, name("openwallet"),
-                   make_tuple(get_self(), memo))
+                   make_tuple(get_self(), address_160))
                     .send();
         }
 
